@@ -2,7 +2,7 @@ module OpticalBlochEquations
 
 using StaticArrays
 import Parameters: @with_kw
-
+__precompile__(false)
 include("constants.jl")
 include("laser.jl")
 include("field.jl")
