@@ -3,20 +3,22 @@ module OpticalBlochEquations
 using StaticArrays
 import Parameters: @with_kw
 
+import DifferentialEquations: ODEProblem, solve, DP5, PeriodicCallback, CallbackSet, terminate!, remake
+
+include("misc/misc.jl")
+
 include("constants.jl")
-include("laser.jl")
-include("field.jl")
+include("field/field.jl")
 include("force.jl")
-include("Hamiltonian.jl")
-include("obe.jl")
-include("Schrodinger.jl")
+include("hamiltonian/hamiltonian.jl")
+include("particle.jl")
+include("optical_bloch_equations/optical_bloch_equations.jl")
+include("schrodinger.jl")
 include("stochastic_schrodinger.jl")
-include("monte_carlo_helper_functions.jl")
-include("monte_carlo_constant_diffusion.jl")
-include("monte_carlo_diffusion.jl")
 include("stochastic_schrodinger_diffusion.jl")
-include("stochastic_schrodinger_constant_diffusion.jl")
-# include("stochastic_schrodinger_fixed_timestepping.jl")
-# include("stochastic_schrodinger_diffusion_fixed_timestepping.jl")
+include("diffusion.jl")
+
+include("field/field_fast.jl")
+include("stochastic_schrodinger_equations/stochastic_schrodinger_equations_fast.jl")
 
 end

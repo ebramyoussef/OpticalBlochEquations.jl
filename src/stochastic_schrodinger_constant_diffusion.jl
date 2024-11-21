@@ -1,7 +1,7 @@
 
 function schrodinger_stochastic_constant_diffusion(
-    particle, states, fields, d, ψ₀, mass, n_excited;
-    sim_params=nothing, extra_data=nothing, λ=1.0, Γ=2π, update_H_and_∇H=update_H_and_∇H)
+    particle, states, fields, d, ψ₀, mass, n_excited, diffusion_constant;
+    params=nothing, λ=1.0, Γ=2π, update_H_and_∇H=update_H_and_∇H, dt=0.0)
     """
     extra_p should contain n_excited
     
@@ -44,8 +44,6 @@ function schrodinger_stochastic_constant_diffusion(
 
     ω = [s.E for s in states]
     eiωt = StructArray(zeros(type_complex, n_states))
-
-    
 
     # Compute cartesian indices to indicate nonzero transition dipole moments in `d`
     # Indices below the diagonal of the Hamiltonian are removed, since those are defined via taking the conjugate
@@ -94,7 +92,7 @@ function schrodinger_stochastic_constant_diffusion(
         λ=λ, k=k, Γ=Γ,
         E=E, E_k=E_k,
         ds=ds, ds_state1=ds_state1, ds_state2=ds_state2,
-        sim_params=sim_params, extra_data=extra_data, mass = mass, update_H_and_∇H=update_H_and_∇H, populations = zeros(Float64, n_states),
+        params=params, mass = mass, update_H_and_∇H=update_H_and_∇H, populations = zeros(Float64, n_states),
         n_scatters = 0,
         save_counter=0,
         n_states=length(states),
@@ -104,7 +102,8 @@ function schrodinger_stochastic_constant_diffusion(
         decay_dist=decay_dist,
         time_to_decay=rand(decay_dist),
         last_decay_time=0.0,
-        diffusion_constant = sim_params.diffusion_constant
+        diffusion_constant=diffusion_constant,
+        dt=dt
         )
 
     return p
@@ -120,10 +119,7 @@ function SE_collapse_pol_constant_diffusion!(integrator)
     n_ground = p.n_ground
     d = p.d
     ψ = integrator.u
-    
-    
- 
-    
+
     # A photon is observed.
     # Measure the polarization of the photon along z.
     p⁺ = 0.0
@@ -140,6 +136,20 @@ function SE_collapse_pol_constant_diffusion!(integrator)
         # note the polarization p in d[:,:,p] is defined to be m_e - m_g, 
         # whereas the polarization of the emitted photon is m_g - m_e
     end
+
+    # for i ∈ 1:n_excited
+    #     c_i = ψ[n_ground + i]
+    #     for j ∈ 1:n_ground
+    #         p⁺ += c_i * d[j,n_ground+i,1]
+    #         p⁰ += c_i * d[j,n_ground+i,2]
+    #         p⁻ += c_i * d[j,n_ground+i,3]
+    #     end
+    #     # note the polarization p in d[:,:,p] is defined to be m_e - m_g, 
+    #     # whereas the polarization of the emitted photon is m_g - m_e
+    # end
+    # p⁺ = norm(p⁺)^2
+    # p⁰ = norm(p⁰)^2
+    # p⁻ = norm(p⁻)^2
     
     p_norm = p⁺ + p⁰ + p⁻
     rn = rand() * p_norm
@@ -183,16 +193,18 @@ function SE_collapse_pol_constant_diffusion!(integrator)
         integrator.u[i] = 0.0
     end
 
-    dp = sample_direction(1)
-    dv = dp ./ p.mass
-    integrator.u[n_states + n_excited + 4] += dv[1]
-    integrator.u[n_states + n_excited + 5] += dv[2]
-    integrator.u[n_states + n_excited + 6] += dv[3]
+    # dp = sample_direction(1)
+    # dv = dp ./ p.mass
+    # integrator.u[n_states + n_excited + 4] += dv[1]
+    # integrator.u[n_states + n_excited + 5] += dv[2]
+    # integrator.u[n_states + n_excited + 6] += dv[3]
     
     time_before_decay = integrator.t - p.last_decay_time
 
     for i ∈ 1:3
-        integrator.u[p.n_states + p.n_excited + 3 + i] += rand((-1,1)) * sqrt( 2p.diffusion_constant * time_before_decay ) / p.mass
+        kick = sqrt( 2p.diffusion_constant[i] * time_before_decay )
+        # integrator.u[p.n_states + p.n_excited + 3 + i] += rand((-1,1)) * kick / p.mass
+        integrator.u[p.n_states + p.n_excited + 3 + i] += rand(Normal(0,kick)) / p.mass
     end
 
     p.last_decay_time = integrator.t
@@ -200,33 +212,51 @@ function SE_collapse_pol_constant_diffusion!(integrator)
     p.time_to_decay = rand(p.decay_dist)
     return nothing
 end
-export SE_collapse_pol_constant_diffusion!;
+export SE_collapse_pol_constant_diffusion!
 
-
-function state_overlap(state1, state2)
-    """ Helper function that returns <state1|state2> """
-    overlap = 0.0 *im
+""" 
+    Helper function that returns <state1|state2>. Assumes that the overlap is real.
+"""
+function state_overlap_real(state1, state2)
+    overlap = zero(Float64)
     @turbo for i ∈ eachindex(state1)
         state1_re = state1.re[i]
-        state1_im = state1.im[i]
+        state1_im = -state1.im[i]
         state2_re = state2.re[i]
         state2_im = state2.im[i]
-        overlap += state1_re*state2_re + state1_im*state2_im + im*(state1_re*state2_im - state2_re*state1_im)
+        overlap += state1_re * state2_re - state1_im * state2_im
     end
     return overlap
 end
+export state_overlap_real
+
+function state_overlap(state1, state2)
+    """ Helper function that returns <state1|state2> """
+    re = zero(Float64)
+    im = zero(Float64)
+    @turbo for i ∈ eachindex(state1)
+        state1_re = state1.re[i]
+        state1_im = -state1.im[i] # wrong?
+        state2_re = state2.re[i]
+        state2_im = state2.im[i]
+        re += state1_re*state2_re - state1_im*state2_im
+        im += state1_re*state2_im + state2_re*state1_im
+    end
+    return (re, im)
+end
+export state_overlap
 
 function operator_matrix_expectation_complex(O, state)
     """ Helper function that returns <state|O|state> """
-    O_re = 0.0
-    O_im = 0.0
+    O_re = zero(Float64)
+    O_im = zero(Float64)
     @turbo for i ∈ eachindex(state)
         re_i = state.re[i]
         im_i = state.im[i]
         for j ∈ eachindex(state)
             re_j = state.re[j]
             im_j = state.im[j]
-            cicj_re = re_i * re_j + im_i * im_j # real part of ci* * cj
+            cicj_re = re_i * re_j + im_i * im_j # real part of ci * cj
             cicj_im = re_i * im_j - im_i * re_j
             O_re += O.re[i,j] * cicj_re - O.im[i,j] * cicj_im
             O_im += O.re[i,j] * cicj_im + O.im[i,j] * cicj_re
@@ -234,6 +264,7 @@ function operator_matrix_expectation_complex(O, state)
     end
     return (O_re, O_im)
 end
+export operator_matrix_expectation_complex
 
 function operator_matrix_expectation_complex_v2(O, state)
     """ Helper function that returns <state|O|state> """

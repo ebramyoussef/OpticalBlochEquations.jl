@@ -48,9 +48,9 @@ function force_noupdate(E_k, ds, ds_state1, ds_state2, ρ_soa)
                 a1 = d_re * ρ_re - d_im * ρ_im
                 a2 = d_re * ρ_im + d_im * ρ_re
                 F_k_re += E_kq_re * a1 - E_kq_im * a2
-                F_k_im += E_kq_im * a1 + E_kq_re * a2            
+                F_k_im += E_kq_im * a1 + E_kq_re * a2
             end
-            F -= (im * F_k_re - F_k_im) * ê[k] # multiply by im
+            F -= (im * F_k_re - F_k_im) * ê[k] # multiply by -im
         end
     end
 
@@ -322,3 +322,4 @@ function force_stochastic(E_k, ds, ds_state1, ds_state2, ψ_soa, eiωt)
 
     return real.(F)
 end
+export force_stochastic

@@ -1,6 +1,6 @@
 using QuantumStates
 
-function define_CaOH_states()
+function define_CaF_states()
 
     # Define the X state Hamiltonian for the N = 0...3 rotational states of CaF
     QN_bounds = (
@@ -9,15 +9,14 @@ function define_CaOH_states()
         Λ = 0, 
         N = 0:3
     )
-    X_state_basis = enumerate_states(HundsCaseB_Rot, QN_bounds)
+    X_state_basis = order_basis_by_m(enumerate_states(HundsCaseB_LinearMolecule, QN_bounds))
 
     X_state_operator = :(
         BX * Rotation + 
         DX * RotationDistortion + 
         γX * SpinRotation + 
         bFX * Hyperfine_IS + 
-        cX * (Hyperfine_Dipolar/3) + 
-        B_art * Zeeman_z
+        cX * (Hyperfine_Dipolar/3)
     )
 
     X_state_parameters = QuantumStates.@params begin
@@ -26,7 +25,6 @@ function define_CaOH_states()
         γX = 39.65895
         bFX = 109.1840
         cX = 40.1182
-        B_art = 1e-6
     end
 
     X_state_ham = Hamiltonian(basis=X_state_basis, operator=X_state_operator, parameters=X_state_parameters)
@@ -40,14 +38,15 @@ function define_CaOH_states()
         Λ = (-1,1),
         J = 1/2:5/2
     )
-    A_state_basis = enumerate_states(HundsCaseA_Rot, QN_bounds)
+    A_state_basis = order_basis_by_m(enumerate_states(HundsCaseA_LinearMolecule, QN_bounds))
 
     A_state_operator = :(
         T_A * DiagonalOperator +
         Be_A * Rotation + 
         Aso_A * SpinOrbit +
         q_A * ΛDoubling_q +
-        p_A * ΛDoubling_p2q + q_A * (2ΛDoubling_p2q)
+        p_A * ΛDoubling_p2q + q_A * (2ΛDoubling_p2q) +
+        val * Hyperfine_IL
     )
 
     # Spectroscopic constants for CaF, A state
@@ -57,13 +56,16 @@ function define_CaOH_states()
         Aso_A = 71.429 * 299792458 * 1e-4
         p_A = -0.044517 * 299792458 * 1e-4
         q_A = -2.916e-4 * 299792458 * 1e-4
+        val = 5.
     end
 
     A_state_ham = Hamiltonian(basis=A_state_basis, operator=A_state_operator, parameters=A_state_parameters)
     evaluate!(A_state_ham)
     QuantumStates.solve!(A_state_ham)
 
-    A_state_J12_pos_parity_states = [A_state_ham.states[5:8];A_state_ham.states[9:16]] # J=1/2 and J=3/2
+    excited_state_idxs = [5:8; 9:16; 37:48]
+    
+    A_state_J12_pos_parity_states = A_state_ham.states[excited_state_idxs]
 
     QN_bounds = (
         S = 1/2, 
@@ -71,7 +73,7 @@ function define_CaOH_states()
         Λ = (-1,1), 
         N = 0:3
     )
-    A_state_caseB_basis = enumerate_states(HundsCaseB_Rot, QN_bounds)
+    A_state_caseB_basis = order_basis_by_m(enumerate_states(HundsCaseB_LinearMolecule, QN_bounds))
 
     ground_states = X_state_ham.states[5:16]
     excited_states = convert_basis(A_state_J12_pos_parity_states, A_state_caseB_basis)
