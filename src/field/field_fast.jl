@@ -28,6 +28,7 @@ function update_rs!(rs, r, denom)
     end
     return nothing
 end
+export update_rs!
 
 """
     E_kq: array of dims k × q, with each row representing the E field along each k direction
@@ -77,9 +78,41 @@ function update_as!(ϕs, as, rs)
         im_k = ϕs[2,k] * rs[2,k]
         
         for f ∈ axes(as,2)
+
             # ωt factor
             re_f = ϕs[3,3+f]
             im_f = ϕs[2,3+f]
+
+            a = re_k * re_f - im_k * im_f
+            b = re_k * im_f + im_k * re_f
+
+            as.re[k,f] = a
+            as.im[k,f] = b
+
+            # include a negative phase for the -k vectors
+            c = re_k * re_f + im_k * im_f
+            d = re_k * im_f - im_k * re_f
+            
+            as.re[k+3,f] = c
+            as.im[k+3,f] = d
+        end
+    end
+    return nothing
+end
+export update_as!
+
+function update_as!(ϕs, as, rs, sats)
+    @turbo for k ∈ 1:3
+        # kr factor
+        re_k = ϕs[3,k] * rs[2,k] # check speed of this function
+        im_k = ϕs[2,k] * rs[2,k]
+        
+        for f ∈ axes(as,2)
+            G = sqrt(sats[f]) / (2*√2)
+
+            # ωt factor
+            re_f = ϕs[3,3+f] * G
+            im_f = ϕs[2,3+f] * G
 
             a = re_k * re_f - im_k * im_f
             b = re_k * im_f + im_k * re_f
@@ -108,10 +141,11 @@ function update_fields_fast!(p, r, t)
     update_ϕs!(p.ϕs, p.ωs, r, t)
     
     # update amplitudes
-    update_as!(p.ϕs, p.as, p.rs)
+    # update_as!(p.ϕs, p.as, p.rs)
+    update_as!(p.ϕs, p.as, p.rs, p.sats)
     
     # update kEs
-    update_E_kq!(p.kEs, p.as, p.ϵs_scaled)
+    update_E_kq!(p.kEs, p.as, p.ϵs)
 
     # update total E
     update_E_total!(p.E_total, p.kEs)

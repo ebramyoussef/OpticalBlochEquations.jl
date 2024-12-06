@@ -11,8 +11,8 @@ function update_phases!(prob)
         ϕ2 = exp(im * 2π * rand())
         for q ∈ axes(prob.p.ϵs,3)
             for f ∈ axes(prob.p.ϵs,2)
-                prob.p.ϵs_scaled[k,f,q] *= ϕ1
-                prob.p.ϵs_scaled[k+3,f,q] *= ϕ2
+                prob.p.ϵs[k,f,q] *= ϕ1
+                prob.p.ϵs[k+3,f,q] *= ϕ2
             end
         end
     end
@@ -28,6 +28,22 @@ function prob_func!(prob)
     update_initial_position!(prob, sample_position(prob.p.params) ./ (1/k))
     update_initial_velocity!(prob, sample_velocity(prob.p.params) ./ (Γ/k))
     update_phases!(prob)
+    return nothing
+end
+
+function prob_func_diffusion!(prob)
+    prob.p.n_scatters = 0.
+    prob.p.last_decay_time = 0.
+    prob.p.time_to_decay = rand(Exponential(1))
+    prob.p.params.photon_budget = rand(Geometric(1/13500))
+    update_initial_position!(prob, sample_position(prob.p.params) ./ (1/k))
+    update_initial_velocity!(prob, sample_velocity(prob.p.params) ./ (Γ/k))
+    update_phases!(prob)
+    
+    # set magnetic field
+    prob.p.params.Bx = +x(prob.u0) * prob.p.params.B_grad_end * 1e2 / 2
+    prob.p.params.By = +y(prob.u0) * prob.p.params.B_grad_end * 1e2 / 2
+    prob.p.params.Bz = -z(prob.u0) * prob.p.params.B_grad_end * 1e2
     return nothing
 end
 
@@ -70,7 +86,7 @@ end
 # POSITION FITTING FUNCTIONS #
 function σ_fit(xs)
     
-    hist_data = fit(Histogram, xs, -1e-3:1e-5:1e-3)
+    hist_data = fit(Histogram, xs, -2e-3:1e-5:2e-3)
     hist_data.isdensity = true
     v = collect(hist_data.edges[1])
     dv = v[2]-v[1]
@@ -109,14 +125,14 @@ end
 
 function T_fit_1D(vs)
     
-    hist_data = fit(Histogram, vs, -1.0:0.05:1.0)
+    hist_data = fit(Histogram, vs, -1.0:0.03:1.0)
     hist_data.isdensity = true
     v = collect(hist_data.edges[1])
     dv = v[2]-v[1]
     v = v[1:end-1] .+ dv/2
     fv = hist_data.weights ./ (sum(hist_data.weights) * dv)
 
-    v_fit = curve_fit(maxwell_boltzmann_1D, v, fv, [10, 10e-6])
+    v_fit = curve_fit(maxwell_boltzmann_1D, v, fv, [1, 150e-6])
     A, temp = v_fit.param
     
     return temp
@@ -132,7 +148,7 @@ Tz_fit(sols) = T_coord_fit(sols, vz)
 
 function survived(sol)
     r = x(sol.u[end]), y(sol.u[end]), z(sol.u[end])
-    if Int(sol.retcode) == 1 #&& abs(r[1]) <= 1e-3 && abs(r[2]) <= 1e-3
+    if Int(sol.retcode) == 1 && abs(r[1]) <= 2e-3 && abs(r[2]) <= 2e-3
         return true
     else
         return false
@@ -153,6 +169,58 @@ function σ_geom_ensemble_sol(ensemble_sol)
     return σ_geom
 end
 
+function σ_geom_ensemble_sol(ensemble_sol, i)
+
+    xs = [x(sol.u[i]) for sol ∈ ensemble_sol if survived(sol)]
+    ys = [y(sol.u[i]) for sol ∈ ensemble_sol if survived(sol)]
+    zs = [z(sol.u[i]) for sol ∈ ensemble_sol if survived(sol)]
+
+    σ_x = σ_fit(xs)
+    σ_y = σ_fit(ys)
+    σ_z = σ_fit(zs)
+    σ_geom = (σ_x * σ_y * σ_z)^(1/3)
+    
+    return σ_geom
+end
+
+function σ_vs_time(sols)
+
+    _, max_time_idx = findmax(sol.t for sol ∈ sols)
+    times = sols[max_time_idx].t
+    
+    σs = zeros(length(times))
+    
+    for i ∈ eachindex(times)
+        xs = [x(sol.u[i]) for sol ∈ sols if length(sol.t) >= i]
+        ys = [y(sol.u[i]) for sol ∈ sols if length(sol.t) >= i]
+        zs = [z(sol.u[i]) for sol ∈ sols if length(sol.t) >= i]
+    
+        σ_x = σ_fit(xs)
+        σ_y = σ_fit(ys)
+        σ_z = σ_fit(zs)
+        σ_geom = (σ_x * σ_y * σ_z)^(1/3)
+        
+        σs[i] = σ_geom
+    end
+    
+    return σs
+end
+
+function density_vs_time(sols)
+
+    N = 5000
+    
+    σs = σ_vs_time(sols)
+    densities = zeros(length(σs))
+    
+    for i ∈ eachindex(densities)
+        n_survived = sum(1 for sol ∈ sols if length(sol.t) >= i) / length(sols)
+        densities[i] = N * n_survived / σs[i]^3 / (2π)^(3/2) * 1e-6
+    end
+    
+    return densities
+end
+
 function T_ensemble_sol(ensemble_sol)
 
     vxs = [vx(sol.u[end]) for sol ∈ ensemble_sol if survived(sol)]
@@ -166,9 +234,9 @@ function T_ensemble_sol(ensemble_sol)
     return T
 end
 
-function distributed_solve(n_avgs, prob, prob_func, scan_func, scan_values)
+function distributed_solve(n_trajectories, prob, prob_func, scan_func, scan_values)
     
-    n_steps = n_avgs * length(workers()) * length(scan_values)
+    n_steps = n_trajectories * length(workers()) * length(scan_values)
     p = Progress(n_steps)
     channel = RemoteChannel(() -> Channel{Bool}(), 1)
 
@@ -187,7 +255,7 @@ function distributed_solve(n_avgs, prob, prob_func, scan_func, scan_values)
                     sols_future = @spawnat pid begin
                         sols_workers = []
                         scan_func(prob, scan_value)
-                        for j ∈ 1:n_avgs
+                        for j ∈ 1:n_trajectories
                             put!(channel, true)
                             prob_func(prob)
                             sol = DifferentialEquations.solve(prob)
@@ -207,13 +275,13 @@ function distributed_solve(n_avgs, prob, prob_func, scan_func, scan_values)
 end
 
 using Bootstrap
-function distributed_compute_diffusion(prob, prob_func, scan_func, scan_values, n_avgs, t_end, τ_total, n_times)
+function distributed_compute_diffusion(prob, prob_func, n_trajectories, t_end, τ_total, n_times, scan_func, scan_values)
     
     diffusions = zeros(length(scan_values))
     diffusion_errors = zeros(length(scan_values))
     diffusions_over_time = Vector{Float64}[]
 
-    n_steps = n_avgs * length(workers()) * length(scan_values)
+    n_steps = n_trajectories * length(workers()) * length(scan_values)
     p = Progress(n_steps)
     channel = RemoteChannel(() -> Channel{Bool}(), 1)
     
@@ -229,7 +297,7 @@ function distributed_compute_diffusion(prob, prob_func, scan_func, scan_values, 
                 for pid ∈ workers()
                     future = @spawnat pid begin
                         scan_func(prob, scan_value)
-                        compute_diffusion(prob, prob_func, n_avgs, t_end, τ_total, n_times, channel)
+                        compute_diffusion(prob, prob_func, n_trajectories, t_end, τ_total, n_times, channel)
                     end
                     push!(futures, future)
                 end

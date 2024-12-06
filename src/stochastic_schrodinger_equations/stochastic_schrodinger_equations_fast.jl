@@ -19,12 +19,13 @@ function initialize_prob(
         ωs,
         sats,
         pols,
-        ψ0,
+        beam_radius,
         d,
         m,
         Γ,
         k,
-        params,
+        sim_params,
+        update_params,
         add_terms_dψ
     )
 
@@ -37,7 +38,7 @@ function initialize_prob(
     # set the integer type for the simulation
     intT = get_int_type(sim_type)
 
-    denom=sim_type((5e-3*k)^2/2)
+    denom=sim_type((beam_radius*k)^2/2)
 
     eiω0ts = zeros(Complex{sim_type},n_states)
 
@@ -82,7 +83,7 @@ function initialize_prob(
     ω0s = MVector{size(ω0s)...}(ω0s)
     eiω0ts = StructArray(MVector{size(eiω0ts)...}(eiω0ts))
 
-    ψ = [ψ0...]
+    ψ = zeros(Complex{sim_type}, n_states)
     ψ = MVector{size(ψ)...}(ψ)
     ψ = StructArray(ψ)
 
@@ -126,7 +127,11 @@ function initialize_prob(
 
     n_scatters = zero(sim_type)
 
+    u0 = sim_type.([zeros(n_states)..., zeros(n_states)..., zeros(4)..., zeros(3)..., zeros(3)..., zeros(3)..., zeros(3)...])
+    u0[1] = 1.0
+
     p = MutableNamedTuple(
+        u0=u0,
         Γ=Γ,
         ωs=ωs,
         ω0s=ω0s,
@@ -143,7 +148,7 @@ function initialize_prob(
         ψ=ψ,
         dψ=dψ,
         ψ_q=ψ_q,
-        params=params,
+        sim_params=sim_params,
         d_ge=d_ge,
         d_eg=d_eg,
         F=F,
@@ -159,6 +164,7 @@ function initialize_prob(
         n_states=n_states,
         m=m,
         add_terms_dψ=add_terms_dψ,
+        update_params=update_params,
         decay_dist=decay_dist,
         time_to_decay=rand(decay_dist),
         last_decay_time=last_decay_time,
@@ -181,8 +187,10 @@ function ψ_fast!(du, u, p, t)
 
     update_r!(u, p.r, p.r_idx)
 
+    p.update_params(p, p.r, t)
+
     update_ψ!(p.ψ, u, p.n_states)
-    
+
     update_fields_fast!(p, p.r, t)
     
     update_eiωt_new!(p.eiω0ts, p.ω0s, t)
@@ -206,6 +214,40 @@ function ψ_fast!(du, u, p, t)
     return nothing
 end
 export ψ_fast!
+
+function ψ_fast_ballistic!(du, u, p, t)
+    
+    normalize_u!(u, p.n_states)
+
+    update_r!(u, p.r, p.r_idx)
+
+    p.update_params(p, p.r, t)
+
+    update_ψ!(p.ψ, u, p.n_states)
+
+    update_fields_fast!(p, p.r, t)
+    
+    update_eiωt_new!(p.eiω0ts, p.ω0s, t)
+
+    Heisenberg_turbo_state!(p.ψ, p.eiω0ts, -1)
+
+    update_ψq!(p.ψ_q, p.d_ge, p.d_eg, p.ψ, p.n_g)
+
+    update_d_exp!(p.d_exp, p.ψ, p.ψ_q, p.n_g)
+
+    update_force!(p.F, p.d_exp, p.kEs)
+     
+    update_dψ!(p.dψ, p.ψ_q, p.E_total)
+
+    p.add_terms_dψ(p.dψ, p.ψ, p, p.r, t) # custom terms to add to dψ
+
+    Heisenberg_turbo_state!(p.dψ, p.eiω0ts, +1)
+
+    update_du_ballistic!(du, u, p.dψ, p.ψ, p.n_states, p.n_g, p.r_idx, p.F, p.v_idx, p.F_idx, p.m)
+
+    return nothing
+end
+export ψ_fast_ballistic!
 
 @inline function normalize_u!(u, n_states)
     u_norm2 = zero(eltype(u))
@@ -266,6 +308,13 @@ export update_u!
         du[n_states+n_g+i] -= u[n_states+n_g+i]/2
     end
     return nothing
+end
+
+@inline function update_du_ballistic!(du, u, dψ, ψ, n_states, n_g, r_idx, F, v_idx, F_idx, m)
+    update_du!(du, u, dψ, ψ, n_states, n_g, r_idx, F, v_idx, F_idx, m)
+    @inbounds @fastmath for k ∈ 1:3
+        du[v_idx+k] = 0.
+    end
 end
 
 # should this just be put directly into du? probably faster since we use one less function

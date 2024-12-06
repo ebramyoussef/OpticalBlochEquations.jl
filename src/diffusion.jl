@@ -7,7 +7,7 @@ function compute_fz(prob)
 
     p = prob.p
     
-    f_z = p.params.f_z
+    f_z = p.sim_params.f_z
     kEs = p.kEs
     d_ge = p.d_ge
 
@@ -74,7 +74,7 @@ function compute_diffusion(prob, prob_func, n_avgs, t_end, τ_total, n_times, ch
 
         # set times to simulate
         t_start = 0.0
-        t_end′  = t_end #+ 1e-6 * rand()
+        t_end′  = t_end + 1e-6 * rand()
         t_span  = (t_start, t_end′)
 
         τ_start = t_end′
@@ -89,7 +89,7 @@ function compute_diffusion(prob, prob_func, n_avgs, t_end, τ_total, n_times, ch
         τ_times = round.(τ_times ./ (1/Γ), digits=9)
 
         dτ = τ_times[2] - τ_times[1]
-        τ_span  = (τ_span[1], τ_span[2] + dτ)
+        τ_span = (τ_span[1], τ_span[2] + dτ)
 
         # create the new problem
         prob.u0 .= 0.
@@ -99,9 +99,8 @@ function compute_diffusion(prob, prob_func, n_avgs, t_end, τ_total, n_times, ch
         prob.p.time_to_decay = rand(prob.p.decay_dist)
 
         # solve the problem
-        sol_ϕ = DifferentialEquations.solve(prob, tspan=t_span)
+        sol_ϕ = solve(prob, tspan=t_span)
         ut = sol_ϕ.u[end]
-        # ft = ut[F_idx + coord_idx]
 
         last_decay_time = sol_ϕ.prob.p.last_decay_time
         time_to_decay = sol_ϕ.prob.p.time_to_decay
@@ -110,8 +109,8 @@ function compute_diffusion(prob, prob_func, n_avgs, t_end, τ_total, n_times, ch
         ϕ.im .= ut[17:32]
 
         compute_fz(sol_ϕ.prob)
-        Heisenberg!(sol_ϕ.prob.p.params.f_z, sol_ϕ.prob.p.eiω0ts)
-        f = sol_ϕ.prob.p.params.f_z
+        Heisenberg!(sol_ϕ.prob.p.sim_params.f_z, sol_ϕ.prob.p.eiω0ts)
+        f = sol_ϕ.prob.p.sim_params.f_z
 
         χm = ϕ .- f*ϕ
         χp = ϕ .+ f*ϕ
@@ -129,7 +128,7 @@ function compute_diffusion(prob, prob_func, n_avgs, t_end, τ_total, n_times, ch
         prob.p.last_decay_time = last_decay_time
         prob.p.time_to_decay = time_to_decay
         prob.u0[F_idx + coord_idx + 3] = 0.
-        sol_ϕτ = DifferentialEquations.solve(prob, tspan=τ_span, saveat=τ_times)
+        sol_ϕτ = solve(prob, tspan=τ_span, saveat=τ_times)
 
         # solve χm
         prob.u0 .= ut
@@ -141,7 +140,7 @@ function compute_diffusion(prob, prob_func, n_avgs, t_end, τ_total, n_times, ch
         update_u!(prob.u0, χm, n_states)
         prob.u0[F_idx + coord_idx] = fχm
         prob.u0[F_idx + coord_idx + 3] = 0.
-        sol_χm = DifferentialEquations.solve(prob, tspan=τ_span, saveat=τ_times)
+        sol_χm = solve(prob, tspan=τ_span, saveat=τ_times)
 
         # solve χp
         prob.u0 .= ut
@@ -153,7 +152,7 @@ function compute_diffusion(prob, prob_func, n_avgs, t_end, τ_total, n_times, ch
         update_u!(prob.u0, χp, n_states)
         prob.u0[F_idx + coord_idx] = fχp
         prob.u0[F_idx + coord_idx + 3] = 0.
-        sol_χp = DifferentialEquations.solve(prob, tspan=τ_span, saveat=τ_times)
+        sol_χp = solve(prob, tspan=τ_span, saveat=τ_times)
         
         # using the integrated version of the force
         cm = sol_χm.u[end][F_idx + coord_idx + 3]
