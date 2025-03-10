@@ -92,27 +92,3 @@ function add_to_H!(H, H₀)
     end
     return nothing
 end
-
-function ψ!(dψ, ψ, p, τ)
-
-    @unpack ψ_soa, dψ_soa, r, H₀, ω, fields, H, E_k, ds, ds_state1, ds_state2, d_m, Js, eiωt, states = p
-
-    base_to_soa!(ψ, ψ_soa)
-    
-    update_H!(p, τ, r, fields, H, E_k, ds, ds_state1, ds_state2, Js)
-    p.update_H(H, p, τ)
-
-    # add_to_H!(H, H₀)
-    
-    update_eiωt!(eiωt, ω, τ)
-    Heisenberg_ψ!(p.ψ_soa, eiωt, -1)
-
-    mul_by_im_minus!(ψ_soa)
-    mul_turbo!(dψ_soa, H, ψ_soa)
-    
-    Heisenberg_ψ!(p.dψ_soa, eiωt, +1)
-    soa_to_base!(dψ, dψ_soa)
-
-    return nothing
-end
-export ψ!

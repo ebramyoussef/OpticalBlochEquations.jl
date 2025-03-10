@@ -34,7 +34,11 @@ sim_params = MutableNamedTuple(
     vz_dist = Normal(0, sqrt(kB*Tz_initial/2m)),
 
     f_z = StructArray(zeros(Complex{sim_type}, 16, 16)),
+    
     total_sat = 0.,
+    s1_ratio = 0.37,
+    s2_ratio = 0.28,
+    s3_ratio = 0.35,
     
     Bx = 0.,
     By = 0.,

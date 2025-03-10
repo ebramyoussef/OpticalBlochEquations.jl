@@ -105,6 +105,55 @@ function update_H!(p, τ, r, fields, H, E_k, ds, ds_state1, ds_state2, Js)
 end
 export update_H!
 
+function update_H_schrodinger!(p, τ, r, fields, H, E_k, ds, ds_state1, ds_state2)
+ 
+    set_H_zero!(H)
+
+    update_fields!(fields, r, τ)
+
+    # Set summed fields to zero
+    p.E -= p.E
+    @inbounds @fastmath for i ∈ 1:3
+        E_k[i] -= E_k[i]
+    end
+    
+    # Sum updated fields
+    @inbounds for i ∈ eachindex(fields)
+        E_i = fields.E[i] * sqrt(fields.s[i]) / (2 * √2)
+        k_i = fields.k[i]
+        p.E += E_i
+        for k ∈ 1:3
+            E_k[k] += E_i * k_i[k]
+        end
+    end
+
+    @inbounds @fastmath for q ∈ 1:3
+        E_q = p.E[q]
+        E_q_re = real(E_q)
+        E_q_im = imag(E_q)
+        ds_q = ds[q]
+        ds_q_re = ds_q.re
+        ds_q_im = ds_q.im
+        ds_state1_q = ds_state1[q]
+        ds_state2_q = ds_state2[q]
+        for i ∈ eachindex(ds_q)
+            m = ds_state1_q[i] # excited state
+            n = ds_state2_q[i] # ground state
+            d_re = ds_q_re[i]
+            d_im = ds_q_im[i]
+            val_re = E_q_re * d_re - E_q_im * d_im
+            val_im = E_q_re * d_im + E_q_im * d_re
+            H.re[n,m] += -val_re # minus sign to make sure Hamiltonian is -d⋅E
+            H.im[n,m] += -val_im
+            H.re[m,n] += -val_re
+            H.im[m,n] -= -val_im
+        end
+    end
+
+    return nothing
+end
+export update_H_schrodinger!
+
 function update_H_obes!(p, τ, r, H₀, fields, H, E_k, ds, ds_state1, ds_state2, Js)
 
     set_H_to_H′!(H, H₀)

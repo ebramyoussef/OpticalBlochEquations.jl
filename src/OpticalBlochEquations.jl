@@ -20,5 +20,6 @@ include("diffusion.jl")
 
 include("field/field_fast.jl")
 include("stochastic_schrodinger_equations/stochastic_schrodinger_equations_fast.jl")
+include("schrodinger/schrodinger.jl")
 
 end

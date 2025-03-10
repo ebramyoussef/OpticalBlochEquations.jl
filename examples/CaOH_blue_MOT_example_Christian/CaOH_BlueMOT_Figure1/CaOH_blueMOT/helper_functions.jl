@@ -95,7 +95,7 @@ function σ_fit(xs)
     v = v[1:end-1] .+ dv/2
     fv = hist_data.weights ./ (sum(hist_data.weights) * dv)
     
-    v_fit = curve_fit(gaussian, v, fv, [60e-6, 0., 1000])
+    v_fit = curve_fit(gaussian, v, fv, [60e-6, 0., 1000], autodiff=:forward)
     σ, x0, A = v_fit.param
     
     return abs(σ)
@@ -119,7 +119,7 @@ function T_fit(vs)
     v = v[1:end-1] .+ dv/2
     fv = hist_data.weights ./ (sum(hist_data.weights) * dv)
 
-    v_fit = curve_fit(maxwell_boltzmann, v, fv, [1, 150e-6])
+    v_fit = curve_fit(maxwell_boltzmann, v, fv, [1, 150e-6], autodiff=:forward)
     A, temp = v_fit.param
     
     return temp
@@ -134,7 +134,7 @@ function T_fit_1D(vs)
     v = v[1:end-1] .+ dv/2
     fv = hist_data.weights ./ (sum(hist_data.weights) * dv)
 
-    v_fit = curve_fit(maxwell_boltzmann_1D, v, fv, [10, 10e-6])
+    v_fit = curve_fit(maxwell_boltzmann_1D, v, fv, [10, 10e-6], autodiff=:forward)
     A, temp = v_fit.param
     
     return temp
@@ -149,34 +149,29 @@ Ty_fit(sols) = T_coord_fit(sols, vy)
 Tz_fit(sols) = T_coord_fit(sols, vz)
 
 function survived(sol)
-    r = x(sol.u[end]), y(sol.u[end]), z(sol.u[end])
-    if Int(sol.retcode) == 1 && abs(r[1]) <= 0.5e-3 && abs(r[2]) <= 0.5e-3
+    r = sqrt(x(sol.u[end])^2 + y(sol.u[end])^2 + z(sol.u[end])^2)
+    if r <= 3e-3 && string(sol.retcode) == "Success"
         return true
-    else
-        return false
     end
+    return false
 end
 
-function σ_geom_ensemble_sol(ensemble_sol)
-
-    xs = [x(sol.u[end]) for sol ∈ ensemble_sol if survived(sol)]
-    ys = [y(sol.u[end]) for sol ∈ ensemble_sol if survived(sol)]
-    zs = [z(sol.u[end]) for sol ∈ ensemble_sol if survived(sol)]
-
-    σ_x = σ_fit(xs)
-    σ_y = σ_fit(ys)
-    σ_z = σ_fit(zs)
-    σ_geom = (σ_x * σ_y * σ_z)^(1/3)
-    
-    return σ_geom
+function survived(sol, i)
+    if i <= length(sol.t)
+        r = sqrt(x(sol.u[i])^2 + y(sol.u[i])^2 + z(sol.u[i])^2)
+        if r <= 3e-3
+            return true
+        end
+    end
+    return false
 end
 
 function σ_geom_ensemble_sol(ensemble_sol, i)
 
-    xs = [x(sol.u[i]) for sol ∈ ensemble_sol if survived(sol)]
-    ys = [y(sol.u[i]) for sol ∈ ensemble_sol if survived(sol)]
-    zs = [z(sol.u[i]) for sol ∈ ensemble_sol if survived(sol)]
-
+    xs = [x(sol.u[i]) for sol ∈ ensemble_sol if survived(sol,i)]
+    ys = [y(sol.u[i]) for sol ∈ ensemble_sol if survived(sol,i)]
+    zs = [z(sol.u[i]) for sol ∈ ensemble_sol if survived(sol,i)]
+    
     σ_x = σ_fit(xs)
     σ_y = σ_fit(ys)
     σ_z = σ_fit(zs)
@@ -193,15 +188,7 @@ function σ_vs_time(sols)
     σs = zeros(length(times))
     
     for i ∈ eachindex(times)
-        xs = [x(sol.u[i]) for sol ∈ sols if length(sol.t) >= i]
-        ys = [y(sol.u[i]) for sol ∈ sols if length(sol.t) >= i]
-        zs = [z(sol.u[i]) for sol ∈ sols if length(sol.t) >= i]
-    
-        σ_x = σ_fit(xs)
-        σ_y = σ_fit(ys)
-        σ_z = σ_fit(zs)
-        σ_geom = (σ_x * σ_y * σ_z)^(1/3)
-        
+        σ_geom = σ_geom_ensemble_sol(sols,i)
         σs[i] = σ_geom
     end
     

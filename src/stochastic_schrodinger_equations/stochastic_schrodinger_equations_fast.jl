@@ -38,7 +38,7 @@ function initialize_prob(
     # set the integer type for the simulation
     intT = get_int_type(sim_type)
 
-    denom=sim_type((beam_radius*k)^2/2)
+    denom = sim_type((beam_radius*k)^2/2)
 
     eiω0ts = zeros(Complex{sim_type},n_states)
 
@@ -62,12 +62,6 @@ function initialize_prob(
         ϵs[5,i,:] .= rotate_pol(pol, -ŷ)
         ϵs[6,i,:] .= rotate_pol(flip(pol), -ẑ)
     end
-    ϵs_scaled = deepcopy(ϵs)
-
-    # multiply the polarization arrays by the saturation intensity
-    for i ∈ eachindex(ωs)
-        ϵs_scaled[:,i,:] .*= sqrt(sats[i]) / (2*√2)
-    end
 
     # arrays related to energies
     as = StructArray(MMatrix{k_dirs,n_freqs}(as))
@@ -76,7 +70,6 @@ function initialize_prob(
     rs = MMatrix{size(rs)...}(rs)
     kEs = StructArray(MMatrix{size(kEs)...}(kEs))
     ϵs = StructArray(MArray{Tuple{k_dirs,n_freqs,3}}(ϵs))
-    ϵs_scaled = StructArray(MArray{Tuple{k_dirs,n_freqs,3}}(ϵs_scaled))
     idxs = MMatrix{size(idxs)...}(idxs)
 
     # arrays related to state energies
@@ -142,7 +135,6 @@ function initialize_prob(
         kEs=kEs,
         E_total=E_total,
         ϵs=ϵs,
-        ϵs_scaled=ϵs_scaled,
         idxs=idxs,
         denom=denom,
         ψ=ψ,
@@ -554,6 +546,18 @@ export stochastic_collapse_new!
     return _condition
 end
 export condition_new
+
+@inline function condition_discrete(u,t,integrator)
+    p = integrator.p
+    integrated_excited_pop = zero(eltype(u))
+    @inbounds @fastmath for i ∈ 1:4
+        p_i = u[2p.n_states+i]
+        integrated_excited_pop += p_i
+    end
+    _condition = integrated_excited_pop - p.time_to_decay
+    return _condition > 0
+end
+export condition_discrete
 
 function stochastic_collapse_no_diffusion!(integrator)
 
