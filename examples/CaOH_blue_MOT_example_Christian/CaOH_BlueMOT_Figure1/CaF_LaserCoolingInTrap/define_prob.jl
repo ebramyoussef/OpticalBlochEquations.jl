@@ -35,7 +35,7 @@ prob_diffusion = ODEProblem(ψ_fast_ballistic!, p_diffusion.u0, sim_type.(t_span
     end
     return nothing
 end
-cb_periodic = PeriodicCallback(diffusion_kick, p.sim_params.dt_diffusion)
+cb_periodic = PeriodicCallback(diffusion_kick, p.sim_params.dt_diffusion, save_positions=(false,false))
 # cbs_periodic = CallbackSet(cb1, cb2, cb_periodic)
 cbs_periodic = CallbackSet(cb1, cb_periodic)
 
