@@ -163,13 +163,190 @@ function initialize_prob(
         n_scatters=n_scatters,
         diffusion_constant=diffusion_constant,
         add_spontaneous_decay_kick=add_spontaneous_decay_kick,
-        sats=sats
+        sats=sats,
+        k=k
     )
 
     return p
 end
 export initialize_prob
 
+function make_couplings(H)
+    ds_state1 = Int64[]
+    ds_state2 = Int64[]
+    ds = Float64[]
+    for i ∈ axes(H, 1)
+        for j ∈ i:size(H, 2)
+            if norm(H[i,j]) > 1e-10
+                push!(ds_state1, j)
+                push!(ds_state2, i)
+                push!(ds, H[i,j])
+            end
+        end
+    end
+    return (ds_state1, ds_state2, ds)
+end
+
+# @inline function operator_expectation_state(o, ψ)
+#     # o_exp_re = zero(Float64)
+#     conj(transpose(ψ))* O * ψ
+#     return o_exp_re
+# end
+# @inline function operator_expectation_state(o, ψ)
+#     o_exp_re = zero(Float64)
+#     # o_exp_im = zero(Float64)
+#     @inbounds @fastmath for i ∈ size(o, 1)
+#         @inbounds @fastmath for j ∈ size(o, 2)
+#             o_exp_re += real(o[i,j]) * (ψ.re[i] * ψ.re[j] + ψ.im[i] * ψ.im[j])
+#             # if i != j
+#             o_exp_re += real(o[i,j]) * (ψ.re[j] * ψ.re[i] + ψ.im[j] * ψ.im[i])
+#             # end
+#         end
+#     end
+#     return o_exp_re
+# end
+@inline function H_expectation(ψ, H, idxs, scalar)
+    acc = 0.0f0
+    @inbounds for (i, j) in idxs
+        Hij = H[i,j]
+        if i == j
+            acc += real(conj(ψ[i]) * Hij * ψ[i])  # Diagonal term
+        else
+            acc += 2f0 * real(conj(ψ[i]) * Hij * ψ[j])  # Use symmetry
+        end
+    end
+    return scalar*acc
+end
+export operator_expectation_state
+# @inline function operator_expectation_state(o, ds_state1, ds_state2, ψ)
+#     o_exp_re = zero(Float64)
+#     @inbounds @fastmath for i ∈ eachindex(o)
+#         idx1 = ds_state1[i]
+#         idx2 = ds_state2[i]
+#         o_exp_re += real(o[i]) * (ψ.re[idx1] * ψ.re[idx2] + ψ.im[idx1] * ψ.im[idx2])
+#         if idx1 != idx2
+#             o_exp_re += real(o[i]) * (ψ.re[idx2] * ψ.re[idx1] + ψ.im[idx2] * ψ.im[idx1])
+#         end
+#     end
+#     return o_exp_re
+# end
+# export operator_expectation_state
+
+@inline function H_func(p)
+    # slow
+    # update_ODT_center_circle!(p.sim_params, t)
+    r = p.r
+    ODT_x = p.sim_params.ODT_position[1] * p.k
+    ODT_z = p.sim_params.ODT_position[2] * p.k
+    ODT_y = 0e-3 * p.k
+    ODT_size = p.sim_params.ODT_size .* p.k
+    gaussian_trap_scalar = exp(-2(r[1]-ODT_x)^2/ODT_size[1]^2) * exp(-2(r[2]-ODT_y)^2/ODT_size[2]^2) * exp(-2(r[3]-ODT_z)^2/ODT_size[3]^2)
+    ∇H = (-4(r[1]-ODT_x) / ODT_size[1]^2, -4(r[2]-ODT_y) / ODT_size[2]^2, -4(r[3]-ODT_z) / ODT_size[3]^2)
+    return gaussian_trap_scalar, ∇H
+end
+# export H_func
+
+@inline function H_func_static(p)
+    r = p.r
+    ODT_pos = p.sim_params.ODT_position
+    ODT_size = p.sim_params.ODT_size
+    k = p.k
+
+    # Precompute scaled positions
+    r1 = r[1]
+    r2 = r[2]
+    r3 = r[3]
+
+    # Scale ODT sizes once
+    sx = ODT_size[1] * k
+    sy = ODT_size[2] * k
+    sz = ODT_size[3] * k
+
+    # Precompute squared sizes
+    sx2 = sx^2
+    sy2 = sy^2
+    sz2 = sz^2
+
+    # Gaussian scalar
+    gaussian_trap_scalar = exp(-2f0 * r1^2 / sx2) *
+                           exp(-2f0 * r2^2 / sy2) *
+                           exp(-2f0 * r3^2 / sz2)
+
+    # Gradient
+    ∇H = SVector{3,Float32}(
+        -4f0 * r1 / sx2,
+        -4f0 * r2 / sy2,
+        -4f0 * r3 / sz2
+    )
+
+    return gaussian_trap_scalar, ∇H
+end
+
+# @inline function H_func(p)
+#     r = p.r
+#     ODT_pos = p.sim_params.ODT_position
+#     ODT_size = p.sim_params.ODT_size
+#     k = p.k
+
+#     # Precompute scaled positions
+#     dx = (r[1] - ODT_pos[1] * k)
+#     dy = (r[2] - 0.0f0)  # since ODT_y = 0
+#     dz = (r[3] - ODT_pos[2] * k)
+
+#     # Scale ODT sizes once
+#     sx = ODT_size[1] * k
+#     sy = ODT_size[2] * k
+#     sz = ODT_size[3] * k
+
+#     # Precompute squared sizes
+#     sx2 = sx^2
+#     sy2 = sy^2
+#     sz2 = sz^2
+
+#     # Gaussian scalar
+#     gaussian_trap_scalar = exp(-2f0 * dx^2 / sx2) *
+#                            exp(-2f0 * dy^2 / sy2) *
+#                            exp(-2f0 * dz^2 / sz2)
+
+#     # Gradient
+#     ∇H = SVector{3,Float32}(
+#         -4f0 * dx / sx2,
+#         -4f0 * dy / sy2,
+#         -4f0 * dz / sz2
+#     )
+
+#     return gaussian_trap_scalar, ∇H
+# end
+# @inline function H_func(p)
+
+#     r = p.r
+#     sim_params = p.sim_params
+#     ODT_position = sim_params.ODT_position
+#     ODT_size = sim_params.ODT_size
+#     k = p.k
+    
+#     ODT_x, ODT_z = ODT_position[1] * k, ODT_position[2] * k
+#     ODT_y = 0.
+#     ODT_size1, ODT_size2, ODT_size3 = ODT_size .* k
+    
+#     dx, dy, dz = r[1] - ODT_x, r[2] - ODT_y, r[3] - ODT_z
+    
+#     @inbounds begin
+#         gaussian_trap_scalar = exp(-2 * dx^2 / ODT_size1^2) * exp(-2 * dy^2 / ODT_size2^2) * exp(-2 * dz^2 / ODT_size3^2)
+#         ∇H = (-4 * dx / ODT_size1^2, -4 * dy / ODT_size2^2, -4 * dz / ODT_size3^2)
+#     end
+    
+#     return gaussian_trap_scalar, ∇H
+# end
+# export H_func
+
+
+# function update_ODT_center_circle!(p, t1)
+#     τ = t1 * (1/Γ)
+#     p.ODT_position[1] = p.ODT_rmax * cos(2π*τ*p.ODT_revs/p.ODT_motion_t_stop)
+#     p.ODT_position[2] = p.ODT_rmax * sin(2π*τ*p.ODT_revs/p.ODT_motion_t_stop)
+#     return nothing
+# end
 """
     Time step update function for stochastic Schrödinger simulation.
 """
@@ -193,11 +370,11 @@ function ψ_fast!(du, u, p, t)
 
     update_d_exp!(p.d_exp, p.ψ, p.ψ_q, p.n_g)
 
-    update_force!(p.F, p.d_exp, p.kEs)
+    gaussian_trap_scalar = update_force!(p, p.F, p.d_exp, p.kEs)
      
     update_dψ!(p.dψ, p.ψ_q, p.E_total)
 
-    p.add_terms_dψ(p.dψ, p.ψ, p, p.r, t) # custom terms to add to dψ
+    p.add_terms_dψ(p.dψ, p.ψ, p, p.r, t, gaussian_trap_scalar) # custom terms to add to dψ
 
     Heisenberg_turbo_state!(p.dψ, p.eiω0ts, +1)
 
@@ -227,11 +404,11 @@ function ψ_fast_ballistic!(du, u, p, t)
 
     update_d_exp!(p.d_exp, p.ψ, p.ψ_q, p.n_g)
 
-    update_force!(p.F, p.d_exp, p.kEs)
+    _ = update_force!(p, p.F, p.d_exp, p.kEs)
      
     update_dψ!(p.dψ, p.ψ_q, p.E_total)
 
-    p.add_terms_dψ(p.dψ, p.ψ, p, p.r, t) # custom terms to add to dψ
+    p.add_terms_dψ(p.dψ, p.ψ, p, p.r, t, 1) # custom terms to add to dψ
 
     Heisenberg_turbo_state!(p.dψ, p.eiω0ts, +1)
 
@@ -415,7 +592,15 @@ export update_eiωt_new!
     return nothing
 end
 
-@inline function update_force!(F, d_exp, kEs)
+@inline function update_force!(p, F, d_exp, kEs)
+    gaussian_trap_scalar, ∇H = H_func_static(p)
+    # ds_state1, ds_state2, ds = make_couplings(p.sim_params.H_ODT_matrix)
+    # H_ODT_exp = 
+    # H_ODT_exp = gaussian_trap_scalar*p.sim_params.trap_scalar*conj(transpose(p.ψ))*p.sim_params.H_ODT_matrix* p.ψ
+    # f_ODT = -real(H_ODT_exp).*∇H
+    f_ODT = -H_expectation(p.ψ,p.sim_params.H_ODT_matrix,p.sim_params.ODT_idxs,p.sim_params.trap_scalar*gaussian_trap_scalar).*∇H
+    # f_ODT *= -im
+    # f_ODT += conj(f_ODT)
     @turbo for k ∈ 1:3
         F_k = zero(eltype(F))
         for q ∈ 1:3
@@ -431,9 +616,9 @@ end
             F_k -= 2F_k_a_re
 
         end
-        F[k] = F_k
+        F[k] = F_k + f_ODT[k]
     end
-    return nothing
+    return gaussian_trap_scalar
 end
 export update_force!
 
